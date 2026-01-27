@@ -72,6 +72,7 @@ DECLARE_SOA_COLUMN(IsTriggerTVX, isTriggerTVX, bool);         //! TriggerTVX
 DECLARE_SOA_COLUMN(IsInSel8, isInSel8, bool);                 //! InSel8
 DECLARE_SOA_COLUMN(IsInAfterAllCuts, isInAfterAllCuts, bool); //! InAfterAllCuts
 DECLARE_SOA_COLUMN(ImpactParameter, impactParameter, float);  //! ImpactParameter
+DECLARE_SOA_COLUMN(MCMultiplicity, mcMultiplicity, float);  //! MC Multiplicity
 
 } // namespace resocollision
 DECLARE_SOA_TABLE(ResoCollisions, "AOD", "RESOCOLLISION",
@@ -95,7 +96,8 @@ DECLARE_SOA_TABLE(ResoMCCollisions, "AOD", "RESOMCCOLLISION",
                   resocollision::IsTriggerTVX,
                   resocollision::IsInSel8,
                   resocollision::IsInAfterAllCuts,
-                  resocollision::ImpactParameter);
+                  resocollision::ImpactParameter,
+                  resocollision::MCMultiplicity);
 using ResoMCCollision = ResoMCCollisions::iterator;
 
 DECLARE_SOA_TABLE(ResoSpheroCollisions, "AOD", "RESOSPHEROCOLLISION",

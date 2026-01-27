@@ -475,7 +475,7 @@ struct ResonanceModuleInitializer {
     bool isTriggerTVX = mccol.selection_bit(aod::evsel::kIsTriggerTVX);
     bool isSel8 = mccol.sel8();
     bool isSelected = colCuts.isSelected(mccol);
-    resoMCCollisions(inVtx10, isTrueINELgt0, isTriggerTVX, isSel8, isSelected, mcCent);
+    resoMCCollisions(inVtx10, isTrueINELgt0, isTriggerTVX, isSel8, isSelected, mcCent, -1.0f);
 
     // QA for Trigger efficiency
     qaRegistry.fill(HIST("Event/hMCEventIndices"), mcCent, aod::resocollision::kINEL);
