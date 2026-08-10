@@ -216,7 +216,7 @@ struct ConfPairBinning : o2::framework::ConfigurableGroup {
   o2::framework::ConfigurableAxis pt2{"pt2", {{100, 0, 6}}, "Pt binning for particle 2"};
   o2::framework::ConfigurableAxis mass1{"mass1", {{100, 0, 2}}, "Mass binning for particle 1 (if particle has mass getter, otherwise PDG mass)"};
   o2::framework::ConfigurableAxis mass2{"mass2", {{100, 0, 2}}, "Mass binning for particle 2 (if particle has mass getter, otherwise PDG mass)"};
-  o2::framework::ConfigurableAxis massInv{"massInv", {{100, 0, 2}}, "Invariant Mass binning"};
+  o2::framework::ConfigurableAxis massInv{"massInv", {{100, 0, 5}}, "Invariant Mass binning"};
   o2::framework::ConfigurableAxis dalitzMtot{"dalitzMtot", {{100, 0, 10}}, "Total invariant mass squared binning in darlitz plot"};
   o2::framework::ConfigurableAxis dalitzM12{"dalitzM12", {{100, 0, 10}}, "Mass12 binning of darlitz plot"};
   o2::framework::ConfigurableAxis dalitzM13{"dalitzM13", {{100, 0, 10}}, "Mass13 binning of darlitz plot"};
@@ -234,7 +234,7 @@ struct ConfPairBinning : o2::framework::ConfigurableGroup {
   o2::framework::Configurable<bool> shUseCent{"shUseCent", false, "SH: bin by centrality instead of multiplicity"};
   o2::framework::ConfigurableAxis shCentBins{"shCentBins", {o2::framework::VARIABLE_WIDTH, 0.0f, 200.0f}, "SH: multiplicity/centrality bin edges (like FemtoUniverse confMultKstarBins)"};
   o2::framework::ConfigurableAxis shKtBins{"shKtBins", {o2::framework::VARIABLE_WIDTH, 0.1f, 0.2f, 0.3f, 0.4f}, "SH: kT bin edges (like FemtoUniverse confKtKstarBins)"};
-  o2::framework::Configurable<bool> shPlot1D{"shPlot1D", false, "(SH) Also fill 1D qinv/k* numerator/denominator (h1D) per (mult,kT) bin"};
+  o2::framework::Configurable<bool> shPlot1D{"shPlot1D", false, "(SH) Also fill the 1D qinv/k* distribution (h1D) and the bin occupancy (BinCount) per (mult,kT) bin"};
 };
 
 struct ConfPairCuts : o2::framework::ConfigurableGroup {
@@ -496,6 +496,11 @@ constexpr char PrefixTrackTrackMe[] = "TrackTrack/ME/";
 constexpr char PrefixTrackV0Se[] = "TrackV0/SE/";
 constexpr char PrefixTrackV0Me[] = "TrackV0/ME/";
 
+constexpr char PrefixTrackD0Se[] = "TrackD0/SE/";
+constexpr char PrefixTrackD0Me[] = "TrackD0/ME/";
+constexpr char PrefixD0D0Se[] = "D0D0/SE/";
+constexpr char PrefixD0D0Me[] = "D0D0/ME/";
+
 constexpr char PrefixV0V0Se[] = "V0V0/SE/";
 constexpr char PrefixV0V0Me[] = "V0V0/ME/";
 
@@ -581,6 +586,8 @@ class PairHistManager
       // copy bin edges, stripping the leading VARIABLE_WIDTH (0) marker
       mShCentEdges.assign(ConfPairBinning.shCentBins.value.begin() + 1, ConfPairBinning.shCentBins.value.end());
       mShKtEdges.assign(ConfPairBinning.shKtBins.value.begin() + 1, ConfPairBinning.shKtBins.value.end());
+      mShCentSpec = {ConfPairBinning.shCentBins, mShUseCent ? "centrality (%)" : "multiplicity"};
+      mShKtSpec = {ConfPairBinning.shKtBins, "k_{T} (GeV/#it{c})"};
     }
 
     // transverse mass type
@@ -702,7 +709,9 @@ class PairHistManager
     }
 
     if (mPlotDalitz) {
-      if constexpr (modes::isEqual(particleType1, modes::Particle::kTrack) && modes::isEqual(particleType2, modes::Particle::kV0)) {
+      if constexpr (modes::isEqual(particleType1, modes::Particle::kTrack) && (modes::isEqual(particleType2, modes::Particle::kV0) ||
+                                                                               modes::isEqual(particleType2, modes::Particle::kTwoTrackResonance) ||
+                                                                               modes::isEqual(particleType2, modes::Particle::kCharmHadron))) {
         auto posDaughter = trackTable.rawIteratorAt(particle2.posDauId() - trackTable.offset());
         auto negDaughter = trackTable.rawIteratorAt(particle2.negDauId() - trackTable.offset());
         ROOT::Math::PtEtaPhiMVector posDau4v = ROOT::Math::PtEtaPhiMVector(posDaughter.pt(), posDaughter.eta(), posDaughter.phi(), mPdgMassPosDau2);
@@ -1022,80 +1031,80 @@ class PairHistManager
       const int nKt = static_cast<int>(mShKtEdges.size()) - 1;
       mShYlmBuffer.assign(nJM, {});
 
-      mShReal.resize(nCent);
-      mShImag.resize(nCent);
+      mShReal.resize(nJM);
+      mShImag.resize(nJM);
       mShCov.resize(nCent);
       mSh1D.resize(nCent);
       mShBinCount.resize(nCent);
+
+      const std::string dir = std::string(prefix) + std::string(AnalysisDir) + "SH/";
+      int ihist = 0;
+      for (int l = 0; l <= mShLMax; ++l) {
+        for (int m = -l; m <= l; ++m) {
+          std::string lm = std::to_string(l);
+          lm += (m < 0) ? std::to_string(l - m) : std::to_string(m);
+          std::string nameRe = dir;
+          nameRe += "ReYlm";
+          nameRe += lm;
+          std::string nameIm = dir;
+          nameIm += "ImYlm";
+          nameIm += lm;
+          // shared "Y_{l}^{m}" suffix for both titles
+          std::string ylmLabel = "Y_{";
+          ylmLabel += std::to_string(l);
+          ylmLabel += "}^{";
+          ylmLabel += std::to_string(m);
+          ylmLabel += "}";
+          std::string titleRe = "Re ";
+          titleRe += ylmLabel;
+          titleRe += "; k* (GeV/#it{c}); mult/cent; k_{T} (GeV/#it{c})";
+          std::string titleIm = "Im ";
+          titleIm += ylmLabel;
+          titleIm += "; k* (GeV/#it{c}); mult/cent; k_{T} (GeV/#it{c})";
+          mShReal[ihist] = mHistogramRegistry->add<TH3>(nameRe.c_str(), titleRe.c_str(), o2::framework::kTH3D, {mShKstarSpec, mShCentSpec, mShKtSpec});
+          mShImag[ihist] = mHistogramRegistry->add<TH3>(nameIm.c_str(), titleIm.c_str(), o2::framework::kTH3D, {mShKstarSpec, mShCentSpec, mShKtSpec});
+          mShReal[ihist]->Sumw2();
+          mShImag[ihist]->Sumw2();
+          ++ihist;
+        }
+      }
+
+      const int nAxisLM = 2 * nJM;
+      const o2::framework::AxisSpec covLmAxis{nAxisLM, -0.5, static_cast<double>(nAxisLM) - 0.5, "l,m #times (re,im)"};
+
       for (int iCent = 0; iCent < nCent; ++iCent) {
-        mShReal[iCent].resize(nKt);
-        mShImag[iCent].resize(nKt);
         mShCov[iCent].resize(nKt);
         mSh1D[iCent].resize(nKt);
         mShBinCount[iCent].resize(nKt);
-        // folder name: mult_{low}_{high}
-        const std::string centFolder = "mult_" + std::to_string(static_cast<int>(mShCentEdges[iCent])) +
-                                       "_" + std::to_string(static_cast<int>(mShCentEdges[iCent + 1]));
+        // name suffix: mult_{low}_{high}
+        std::string centSuffix = "_mult_";
+        centSuffix += std::to_string(static_cast<int>(mShCentEdges[iCent]));
+        centSuffix += "_";
+        centSuffix += std::to_string(static_cast<int>(mShCentEdges[iCent + 1]));
         for (int iKt = 0; iKt < nKt; ++iKt) {
-          mShReal[iCent][iKt].resize(nJM);
-          mShImag[iCent][iKt].resize(nJM);
-          // folder name: kT_{low*100}_{high*100}
-          std::string ktFolder = "kT_";
-          ktFolder += std::to_string(static_cast<int>(mShKtEdges[iKt] * 100.0));
-          ktFolder += "_";
-          ktFolder += std::to_string(static_cast<int>(mShKtEdges[iKt + 1] * 100.0));
-          std::string dir = std::string(prefix) + std::string(AnalysisDir) + "SH/";
-          dir += centFolder;
-          dir += "/";
-          dir += ktFolder;
-          dir += "/";
-
-          int ihist = 0;
-          for (int l = 0; l <= mShLMax; ++l) {
-            for (int m = -l; m <= l; ++m) {
-              std::string lm = std::to_string(l);
-              lm += (m < 0) ? std::to_string(l - m) : std::to_string(m);
-              std::string nameRe = dir;
-              nameRe += "ReYlm";
-              nameRe += lm;
-              std::string nameIm = dir;
-              nameIm += "ImYlm";
-              nameIm += lm;
-              // shared "Y_{l}^{m}" suffix for both titles
-              std::string ylmLabel = "Y_{";
-              ylmLabel += std::to_string(l);
-              ylmLabel += "}^{";
-              ylmLabel += std::to_string(m);
-              ylmLabel += "}";
-              std::string titleRe = "Re ";
-              titleRe += ylmLabel;
-              titleRe += "; k* (GeV/#it{c}); Re[A_{l}^{m}]";
-              std::string titleIm = "Im ";
-              titleIm += ylmLabel;
-              titleIm += "; k* (GeV/#it{c}); Im[A_{l}^{m}]";
-              mShReal[iCent][iKt][ihist] = mHistogramRegistry->add<TH1>(nameRe.c_str(), titleRe.c_str(), o2::framework::kTH1D, {mShKstarSpec});
-              mShImag[iCent][iKt][ihist] = mHistogramRegistry->add<TH1>(nameIm.c_str(), titleIm.c_str(), o2::framework::kTH1D, {mShKstarSpec});
-              mShReal[iCent][iKt][ihist]->Sumw2();
-              mShImag[iCent][iKt][ihist]->Sumw2();
-              ++ihist;
-            }
-          }
+          // name suffix: _mult_{low}_{high}_kT_{low*100}_{high*100}
+          std::string cellSuffix = centSuffix;
+          cellSuffix += "_kT_";
+          cellSuffix += std::to_string(static_cast<int>(mShKtEdges[iKt] * 100.0));
+          cellSuffix += "_";
+          cellSuffix += std::to_string(static_cast<int>(mShKtEdges[iKt + 1] * 100.0));
 
           // SH covariance TH3D
-          const int nAxisLM = 2 * nJM;
-          const o2::framework::AxisSpec covLmAxis{nAxisLM, -0.5, static_cast<double>(nAxisLM) - 0.5, "l,m #times (re,im)"};
           std::string nameCov = dir;
           nameCov += "Cov";
+          nameCov += cellSuffix;
           mShCov[iCent][iKt] = mHistogramRegistry->add<TH3>(nameCov.c_str(), "SH covariance; k* (GeV/#it{c}); l,m; l,m", o2::framework::kTH3D, {mShKstarSpec, covLmAxis, covLmAxis});
           mShCov[iCent][iKt]->Sumw2();
 
-          std::string nameBinCount = dir;
-          nameBinCount += "BinCount";
-          mShBinCount[iCent][iKt] = mHistogramRegistry->add<TH1>(nameBinCount.c_str(), "SH bin occupancy; k* (GeV/#it{c}); Entries", o2::framework::kTH1D, {mShKstarSpec});
-
           if (mShPlot1D) {
+            std::string nameBinCount = dir;
+            nameBinCount += "BinCount";
+            nameBinCount += cellSuffix;
+            mShBinCount[iCent][iKt] = mHistogramRegistry->add<TH1>(nameBinCount.c_str(), "SH bin occupancy; k* (GeV/#it{c}); Entries", o2::framework::kTH1D, {mShKstarSpec});
+
             std::string name1D = dir;
             name1D += "h1D";
+            name1D += cellSuffix;
             mSh1D[iCent][iKt] = mHistogramRegistry->add<TH1>(name1D.c_str(), "1D distribution; k* (GeV/#it{c}); Entries", o2::framework::kTH1D, {mShKstarSpec});
             mSh1D[iCent][iKt]->Sumw2();
           }
@@ -1297,13 +1306,14 @@ class PairHistManager
       mHistogramRegistry->fill(HIST(prefix) + HIST(AnalysisDir) + HIST(getHistName(kQoutQsideQlong, HistTable)), mQout, mQside, mQlong);
     }
     if (mPlotSH) {
-      const int iCent = findShBin(mShUseCent ? mCent : mMult, mShCentEdges);
+      const float shCentValue = mShUseCent ? mCent : mMult;
+      const int iCent = findShBin(shCentValue, mShCentEdges);
       const int iKt = findShBin(mKt, mShKtEdges);
       if (iCent >= 0 && iKt >= 0) {
         mYlm.doYlmUpToL(mShLMax, mShOut, mShSide, mShLong, mShYlmBuffer.data());
         for (std::size_t i = 0; i < mShYlmBuffer.size(); ++i) {
-          mShReal[iCent][iKt][i]->Fill(mShKv, std::real(mShYlmBuffer[i]));
-          mShImag[iCent][iKt][i]->Fill(mShKv, -std::imag(mShYlmBuffer[i]));
+          mShReal[i]->Fill(mShKv, shCentValue, mKt, std::real(mShYlmBuffer[i]));
+          mShImag[i]->Fill(mShKv, shCentValue, mKt, -std::imag(mShYlmBuffer[i]));
         }
         // covariance: outer product of the (re, -im) Ylm vector packed on 2*nJM axes
         // (each Ylm contributes two consecutive axis bins: even = real, odd = -imag)
@@ -1317,8 +1327,8 @@ class PairHistManager
           }
         }
 
-        mShBinCount[iCent][iKt]->Fill(mShKv, 1.0);
         if (mShPlot1D) {
+          mShBinCount[iCent][iKt]->Fill(mShKv, 1.0);
           // FemtoUniverse h1D = f3d[0]: qinv (=2k*) for identical-LCMS, else k*.
           const float sh1DValue = (mShFrame == ShFrameLcmsIdentical) ? (2.0f * mKstar) : mKstar;
           mSh1D[iCent][iKt]->Fill(sh1DValue);
@@ -1686,6 +1696,8 @@ class PairHistManager
   static constexpr int ShFramePrf = 2;
 
   o2::framework::AxisSpec mShKstarSpec{{60, 0.0f, 0.3f}, "k* (GeV/#it{c})"}; // set in init()
+  o2::framework::AxisSpec mShCentSpec{{1, 0.0f, 200.0f}, "mult/cent"};
+  o2::framework::AxisSpec mShKtSpec{{3, 0.1f, 0.4f}, "k_{T} (GeV/#it{c})"};
 
   // kinematics computed in setPair(): axis value + 3 components feeding Ylm
   float mShKv = 0.f; // kstar (non-identical) or qinv (identical)
@@ -1693,9 +1705,9 @@ class PairHistManager
   float mShSide = 0.f;
   float mShLong = 0.f;
 
-  // SH histograms binned in [iCent][iKt][ihist]; ihist = l*(l+1)+m
-  std::vector<std::vector<std::vector<std::shared_ptr<TH1>>>> mShReal;
-  std::vector<std::vector<std::vector<std::shared_ptr<TH1>>>> mShImag;
+  // SH histograms per [ihist] (ihist = l*(l+1)+m); TH3: k* on X, mult/cent on Y, kT on Z
+  std::vector<std::shared_ptr<TH3>> mShReal;
+  std::vector<std::shared_ptr<TH3>> mShImag;
   // SH covariance matrix per [iCent][iKt]; TH3d: k* on X, 2*nJM (l,m x re/im)
   std::vector<std::vector<std::shared_ptr<TH3>>> mShCov;
   bool mShPlot1D = false;
